@@ -200,7 +200,7 @@ int main() {
   //Define the lane where I want to be
   int lane = 1;
   // Reference velocity, slightly bellow speed limit
-  double ref_vel = 49.5; //mph
+  double ref_vel = 0.0; //mph
 
   h.onMessage([&ref_vel, &lane, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
@@ -253,6 +253,54 @@ int main() {
             //   next_y_vals.push_back(next_xy[1]);
             // }
             //
+            if (prev_size < 0)
+            {
+                car_s = end_path_s;
+            }
+
+            bool too_close = false;
+
+            // find ref_v to use
+            for (int i = 0; i < sensor_fusion.size(); i++)
+            {
+              //car is in my lane
+              float d = sensor_fusion[0][6]; //6 is because d is the sixth value
+              cout << "d is : " << d << endl;
+              if (d < (2 + (4 * lane) + 2) && d > (2 + (4 * lane) - 2))
+              {
+                //if the car is in my lane I check the speed
+                double vx = sensor_fusion[i][3];
+                double vy = sensor_fusion[i][4];
+                double check_speed = sqrt(vx*vx+vy*vy);
+                // get also the s of the car to check where is its position (how far)
+                double check_car_s = sensor_fusion[i][5];
+
+                //check where the car will be in the future
+                check_car_s += ((double)prev_size * .02*check_speed); // if using previous point can project a value out
+
+                // check if my car s is similar to the others car s
+                //Check if car is in front of my and if the gap is less than 30 meters
+                cout << "Car distance is : " << check_car_s - car_s << endl; 
+                if ((check_car_s > car_s) && ((check_car_s - car_s) < 30))
+                {
+                  //Do some logic here. Lower reference velocity so we dont crash into the car infront of us, could
+                  // also flag to try to change lanes.
+                  //ref_vel = 29.5; //mph
+                  too_close = true;
+                }
+              }
+            }
+
+            if (too_close)
+            {
+              ref_vel -= .224; // five meters per second square
+              cout << "We are too close, decreased speed" << endl;
+            }
+            else if (ref_vel < 49.5)
+            {
+              ref_vel += .224;
+            }
+
 
             //Create a space of widely spaced (x,y) waypoints, evenly spaced at 30ms
             //Later we will interpolate these waypoints with a spline and fill it in with more points that control speed.
@@ -310,6 +358,7 @@ int main() {
             ptsy.push_back(next_wp1[1]);
             ptsy.push_back(next_wp2[1]);
 
+            // set point to car refernce
             for (int i = 0; i < ptsx.size(); i++)
             {
               //shift car reference angle to 0 degrees
@@ -356,7 +405,7 @@ int main() {
               double x_ref = x_point;
               double y_ref = y_point;
 
-              // rotate back to normal after rotating it earlier
+              // rotate back to normal after rotating it earlier. Back to normal coordinates
               x_point = (x_ref * cos(ref_yaw)-y_ref*sin(ref_yaw));
               y_point = (x_ref * sin(ref_yaw)+y_ref*cos(ref_yaw));
 
