@@ -287,6 +287,7 @@ double calculateCostForState(string state, double car_s, int lane, double ref_v,
     double distance = getDistanceToClosestCarOnLane(lane, car_s, sensor_fusion);
     cost += getDistanceWithCarCost(distance);
     cost += changeLaneCost(false);
+    cost += stayOnTheRoadCost(lane);
     // cost += getDistanceWithCarCost(distance);
   }
   // else if (state == "PLCL")
@@ -305,6 +306,7 @@ double calculateCostForState(string state, double car_s, int lane, double ref_v,
     double distance = getDistanceToClosestCarOnLane(lane - 1, car_s, sensor_fusion);
     cost += getDistanceWithCarCost(distance);
     cost += changeLaneCost(true);
+    cost += stayOnTheRoadCost(lane-1);
   }
   else if (state == "LCR")
   {
@@ -312,6 +314,7 @@ double calculateCostForState(string state, double car_s, int lane, double ref_v,
     double distance = getDistanceToClosestCarOnLane(lane + 1, car_s, sensor_fusion);
     cost += getDistanceWithCarCost(distance);
     cost += changeLaneCost(true);
+    cost += stayOnTheRoadCost(lane+1);
   }
   return cost;
 }
