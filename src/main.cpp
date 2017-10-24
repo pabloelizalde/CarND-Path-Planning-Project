@@ -3,6 +3,7 @@
 #include <uWS/uWS.h>
 #include <chrono>
 #include <iostream>
+#include <algorithm>
 #include <thread>
 #include <vector>
 #include "Eigen-3.3/Eigen/Core"
@@ -14,6 +15,9 @@ using namespace std;
 
 // for convenience
 using json = nlohmann::json;
+
+// Constants
+int max_lanes = 3;
 
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
@@ -160,6 +164,170 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+double getSpeedCost(double velocity) {
+
+  double cost = 0.0;
+  double speed_limit = 50.0;
+  double buffer_v = 2.0;
+  double target_speed = speed_limit - buffer_v;
+  double stop_cost = 0.9;
+
+  if (velocity < target_speed)
+  {
+    cost = stop_cost * ((target_speed - velocity) / target_speed);
+    // cost = 0.8;
+  }
+  else if (velocity > speed_limit)
+  {
+    cost = 1.0;
+  }
+  else if ((velocity > target_speed) && (velocity < speed_limit))
+  {
+    cost = (velocity - target_speed) / buffer_v;
+  }
+
+  return cost;
+}
+
+double getDistanceWithCarCost(double distance)
+{
+  double cost = 0.0;
+  if (distance > 100)
+  {
+    cost = 0.0;
+  }
+  else if (distance < 50 && distance > 0)
+  {
+    cost = 1.0;
+  }
+  else if (distance <= 100 && distance >= 50)
+  {
+    cost = 1.0 - ((distance - 50) / 50);
+  }
+  return cost;
+}
+
+double stayOnTheRoadCost(int lane) {
+  if (lane < 0 or lane >= max_lanes)
+  {
+    return 1.0;
+  }
+  else
+  {
+    return 0.0;
+  }
+}
+
+double changeLaneCost(double change)
+{
+  if (change == true)
+  {
+    return 0.4;
+  }
+  else
+  {
+    return 0.0;
+  }
+}
+
+double getDistanceToClosestCarOnLane(int lane, double car_s, vector<vector<double>> sensor_fusion)
+{
+  double min_distance = 1000; // max distance
+  for (int i = 0; i < sensor_fusion.size(); i++)
+  {
+    //car is in my lane
+    float d = sensor_fusion[i][6]; //6 is because d is the sixth value
+    if (d < (2 + (4 * lane) + 2) && d > (2 + (4 * lane) - 2))
+    {
+      //Is in the same lane
+      double check_car_s = sensor_fusion[i][5];
+
+      double distance = check_car_s - car_s;
+      if (distance < min_distance and distance > 0)
+      {
+        min_distance = distance;
+      }
+
+    }
+  }
+  return min_distance;
+}
+
+vector<string> getPossibleStates(string current_state)
+{
+  vector<string> possible_states = {};
+
+  if (current_state == "KL")
+  {
+    possible_states = {"KL", "LCL", "LCR"};
+  }
+  // else if (current_state == "PLCL")
+  // {
+  //   possible_states = {"PLCL", "LCL"};
+  // }
+  // else if (current_state == "PLCR")
+  // {
+  //   possible_states = {"PLCL", "LCR"};
+  // }
+  else if ((current_state == "LCL") or (current_state == "LCR"))
+  {
+    possible_states = {"KL"};
+  }
+
+  return possible_states;
+}
+
+double calculateCostForState(string state, double car_s, int lane, double ref_v, vector<vector<double>> sensor_fusion)
+{
+  double cost = 0.0;
+  if (state == "KL")
+  {
+    //Cost for KL
+    // cost += getSpeedCost(ref_v);
+    double distance = getDistanceToClosestCarOnLane(lane, car_s, sensor_fusion);
+    cost += getDistanceWithCarCost(distance);
+    cost += changeLaneCost(false);
+    // cost += getDistanceWithCarCost(distance);
+  }
+  // else if (state == "PLCL")
+  // {
+  //   //Cost for PLCL
+  //   cost += getDistanceWithCarCost(distance);
+  // }
+  // else if (state == "PLCR")
+  // {
+  //   //Cost for PLCR
+  //   cost += getDistanceWithCarCost(distance);
+  // }
+  else if (state == "LCL")
+  {
+    //Cost for LCL
+    double distance = getDistanceToClosestCarOnLane(lane - 1, car_s, sensor_fusion);
+    cost += getDistanceWithCarCost(distance);
+    cost += changeLaneCost(true);
+  }
+  else if (state == "LCR")
+  {
+    //Cost for LCR
+    double distance = getDistanceToClosestCarOnLane(lane + 1, car_s, sensor_fusion);
+    cost += getDistanceWithCarCost(distance);
+    cost += changeLaneCost(true);
+  }
+  return cost;
+}
+
+// double getColissionCost()
+// {
+//
+// }
+// Driver function to sort the vector elements
+// by second element of pairs
+bool sortbysec(const pair<string,int> &a,
+              const pair<string,int> &b)
+{
+    return (a.second < b.second);
+}
+
 int main() {
   uWS::Hub h;
 
@@ -197,12 +365,17 @@ int main() {
   	map_waypoints_dy.push_back(d_y);
   }
 
+  //Define states for FSM
+  vector<string> states = {"KL", "LCL", "LCR", "PLCL", "PLCR"};
+  string current_state = "KL";
+
   //Define the lane where I want to be
   int lane = 1;
   // Reference velocity, slightly bellow speed limit
   double ref_vel = 0.0; //mph
 
-  h.onMessage([&ref_vel, &lane, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+
+  h.onMessage([&current_state, &ref_vel, &lane, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -239,20 +412,14 @@ int main() {
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
+            // cout << "Possible state:" << possible_states[0] << endl;
+            // for(std::vector<string>::iterator it = possible_states.begin(); it != possible_states.end(); ++it) {
+            //   cout << it << endl;
+            // }
+
+
             int prev_size = previous_path_x.size();
 
-            //TEST Follow center of second lane
-            // double dist_inc = 0.5;
-            // for(int i = 0; i < 50; i++)
-            // {
-            //   double next_s = car_s + ((i+1) * dist_inc);
-            //   //Each lane is 4 meters. We count from yellow middle line, and we are in lane 2, so is 1 lane and a half = 6meters
-            //   double next_d = 6;
-            //   vector<double> next_xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            //   next_x_vals.push_back(next_xy[0]);
-            //   next_y_vals.push_back(next_xy[1]);
-            // }
-            //
             if (prev_size < 0)
             {
                 car_s = end_path_s;
@@ -264,8 +431,7 @@ int main() {
             for (int i = 0; i < sensor_fusion.size(); i++)
             {
               //car is in my lane
-              float d = sensor_fusion[0][6]; //6 is because d is the sixth value
-              cout << "d is : " << d << endl;
+              float d = sensor_fusion[i][6]; //6 is because d is the sixth value
               if (d < (2 + (4 * lane) + 2) && d > (2 + (4 * lane) - 2))
               {
                 //if the car is in my lane I check the speed
@@ -280,12 +446,11 @@ int main() {
 
                 // check if my car s is similar to the others car s
                 //Check if car is in front of my and if the gap is less than 30 meters
-                cout << "Car distance is : " << check_car_s - car_s << endl; 
-                if ((check_car_s > car_s) && ((check_car_s - car_s) < 30))
+                // cout << "Car with id: " << sensor_fusion[i][0] << " -> Distance is : " << check_car_s - car_s << endl;
+                if ((check_car_s > car_s) && ((check_car_s - car_s) < 50))
                 {
                   //Do some logic here. Lower reference velocity so we dont crash into the car infront of us, could
                   // also flag to try to change lanes.
-                  //ref_vel = 29.5; //mph
                   too_close = true;
                 }
               }
@@ -294,12 +459,45 @@ int main() {
             if (too_close)
             {
               ref_vel -= .224; // five meters per second square
-              cout << "We are too close, decreased speed" << endl;
+              // cout << "We are too close, decreased speed" << endl;
             }
-            else if (ref_vel < 49.5)
+            else if (ref_vel < 48.0)
             {
               ref_vel += .224;
             }
+
+            vector<string> possible_states = getPossibleStates(current_state);
+            vector<pair<string,double>> state_costs;
+            for (auto const& state: possible_states)
+            {
+              double cost = calculateCostForState(state, car_s, lane, ref_vel, sensor_fusion);
+              state_costs.push_back(make_pair(state, cost));
+              cout << "STATE: " << state << "has a cost of: " << cost << endl;
+            }
+
+            //order the costs
+            sort(state_costs.begin(), state_costs.end(), sortbysec);
+            cout << "THE BEST STATE IS : " << state_costs[0].first << endl;
+
+            if (state_costs[0].first == "LCL") {
+              lane -= 1;
+            }
+            else if (state_costs[0].first == "LCR")
+            {
+              lane += 1;
+            }
+            // sort(state_costs.begin(), state_costs.end(), [](const std::pair<int,int> &left, const std::pair<int,int> &right) {
+            //   return left.second < right.second;
+            // });
+
+            // double min_distance = getDistanceToClosestCarOnLane(lane, car_s, sensor_fusion);
+            // cout << "Distance to front car is : " << min_distance << endl;
+
+            // double cost = calculateCostForState(current_state, ref_vel);
+
+            // cout << "Cost for speed is : " << cost << endl;
+
+
 
 
             //Create a space of widely spaced (x,y) waypoints, evenly spaced at 30ms
@@ -346,9 +544,9 @@ int main() {
             }
 
             //In Frenet evenly 30m spaced points ahead of the starting reference
-            vector<double> next_wp0 = getXY(car_s + 30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            vector<double> next_wp1 = getXY(car_s + 60, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            vector<double> next_wp2 = getXY(car_s + 90, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp0 = getXY(car_s + 50, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp1 = getXY(car_s + 100, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp2 = getXY(car_s + 150, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
 
             ptsx.push_back(next_wp0[0]);
             ptsx.push_back(next_wp1[0]);
