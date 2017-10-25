@@ -164,31 +164,6 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
-double getSpeedCost(double velocity) {
-
-  double cost = 0.0;
-  double speed_limit = 50.0;
-  double buffer_v = 2.0;
-  double target_speed = speed_limit - buffer_v;
-  double stop_cost = 0.9;
-
-  if (velocity < target_speed)
-  {
-    cost = stop_cost * ((target_speed - velocity) / target_speed);
-    // cost = 0.8;
-  }
-  else if (velocity > speed_limit)
-  {
-    cost = 1.0;
-  }
-  else if ((velocity > target_speed) && (velocity < speed_limit))
-  {
-    cost = (velocity - target_speed) / buffer_v;
-  }
-
-  return cost;
-}
-
 double getDistanceWithCarCost(double distance)
 {
   double cost = 0.0;
@@ -261,14 +236,6 @@ vector<string> getPossibleStates(string current_state)
   {
     possible_states = {"KL", "LCL", "LCR"};
   }
-  // else if (current_state == "PLCL")
-  // {
-  //   possible_states = {"PLCL", "LCL"};
-  // }
-  // else if (current_state == "PLCR")
-  // {
-  //   possible_states = {"PLCL", "LCR"};
-  // }
   else if ((current_state == "LCL") or (current_state == "LCR"))
   {
     possible_states = {"KL"};
@@ -283,23 +250,11 @@ double calculateCostForState(string state, double car_s, int lane, double ref_v,
   if (state == "KL")
   {
     //Cost for KL
-    // cost += getSpeedCost(ref_v);
     double distance = getDistanceToClosestCarOnLane(lane, car_s, sensor_fusion);
     cost += getDistanceWithCarCost(distance);
     cost += changeLaneCost(false);
     cost += stayOnTheRoadCost(lane);
-    // cost += getDistanceWithCarCost(distance);
   }
-  // else if (state == "PLCL")
-  // {
-  //   //Cost for PLCL
-  //   cost += getDistanceWithCarCost(distance);
-  // }
-  // else if (state == "PLCR")
-  // {
-  //   //Cost for PLCR
-  //   cost += getDistanceWithCarCost(distance);
-  // }
   else if (state == "LCL")
   {
     //Cost for LCL
@@ -429,7 +384,7 @@ int main() {
             }
 
             bool too_close = false;
-
+            double car_in_front_speed = 48.0;
             // find ref_v to use
             for (int i = 0; i < sensor_fusion.size(); i++)
             {
@@ -455,13 +410,20 @@ int main() {
                   //Do some logic here. Lower reference velocity so we dont crash into the car infront of us, could
                   // also flag to try to change lanes.
                   too_close = true;
+                  //Ref vel should be the velocity of the car in front of me
+                  car_in_front_speed = check_speed * 2.24; // from meter per second to MPH
+                  cout << "La velocidad del coche de delante es : " << car_in_front_speed << endl;
                 }
               }
             }
 
             if (too_close)
             {
-              ref_vel -= .224; // five meters per second square
+              if (ref_vel > car_in_front_speed)
+              {
+                ref_vel -= .224; // five meters per second square
+              }
+              // ref_vel -= .224; // five meters per second square
               // cout << "We are too close, decreased speed" << endl;
             }
             else if (ref_vel < 48.0)
@@ -475,12 +437,12 @@ int main() {
             {
               double cost = calculateCostForState(state, car_s, lane, ref_vel, sensor_fusion);
               state_costs.push_back(make_pair(state, cost));
-              cout << "STATE: " << state << "has a cost of: " << cost << endl;
+              // cout << "STATE: " << state << "has a cost of: " << cost << endl;
             }
 
             //order the costs
             sort(state_costs.begin(), state_costs.end(), sortbysec);
-            cout << "THE BEST STATE IS : " << state_costs[0].first << endl;
+            // cout << "THE BEST STATE IS : " << state_costs[0].first << endl;
 
             if (state_costs[0].first == "LCL") {
               lane -= 1;
@@ -489,19 +451,6 @@ int main() {
             {
               lane += 1;
             }
-            // sort(state_costs.begin(), state_costs.end(), [](const std::pair<int,int> &left, const std::pair<int,int> &right) {
-            //   return left.second < right.second;
-            // });
-
-            // double min_distance = getDistanceToClosestCarOnLane(lane, car_s, sensor_fusion);
-            // cout << "Distance to front car is : " << min_distance << endl;
-
-            // double cost = calculateCostForState(current_state, ref_vel);
-
-            // cout << "Cost for speed is : " << cost << endl;
-
-
-
 
             //Create a space of widely spaced (x,y) waypoints, evenly spaced at 30ms
             //Later we will interpolate these waypoints with a spline and fill it in with more points that control speed.
