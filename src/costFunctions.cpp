@@ -15,7 +15,7 @@ int max_lanes = 3;
 double getDistanceWithCarCost(double distance)
 {
   double cost = 0.0;
-  if (distance > 100)
+  if (distance > 70)
   {
     cost = 0.0;
   }
@@ -23,9 +23,9 @@ double getDistanceWithCarCost(double distance)
   {
     cost = 1.0;
   }
-  else if (distance <= 100 && distance >= 30)
+  else if (distance <= 70 && distance >= 30)
   {
-    cost = 1.0 - ((distance - 30) / 70);
+    cost = 1.0 - ((distance - 30) / 40);
   }
   return cost;
 }
@@ -46,30 +46,31 @@ double changeLaneCost()
     return 1.0;
 }
 
-double getSpeedCost(double velocity) {
+double getSpeedCost(double velocity, bool is_accelerating) {
 
   double cost = 0.0;
   double speed_limit = 50.0;
-  double buffer_v = 2.0;
+  double buffer_v = 3.0;
   double target_speed = speed_limit - buffer_v;
   double stop_cost = 1.0;
-  double min_speed = 20.0;
 
-  if (velocity < min_speed)
-  {
-    cost = 0.2;
+  if (is_accelerating) {
+    cost = 0.0;
   }
-  else if (velocity >= min_speed and velocity < target_speed)
+  else
   {
-    cost = stop_cost * ((target_speed - velocity) / target_speed);
-  }
-  else if (velocity > speed_limit)
-  {
-    cost = 1.0;
-  }
-  else if ((velocity > target_speed) && (velocity < speed_limit))
-  {
-    cost = (velocity - target_speed) / buffer_v;
+    if (velocity < target_speed)
+    {
+      cost = stop_cost * ((target_speed - velocity) / target_speed);
+    }
+    else if (velocity > speed_limit)
+    {
+      cost = 1.0;
+    }
+    else if ((velocity > target_speed) && (velocity < speed_limit))
+    {
+      cost = 0.0;
+    }
   }
 
   return cost;
@@ -77,7 +78,7 @@ double getSpeedCost(double velocity) {
 
 double avoidCollisionCost(double distance)
 {
-  if (distance > 20)
+  if (distance > 10)
   {
     return 0.0;
   }

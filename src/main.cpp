@@ -95,7 +95,7 @@ vector<string> getPossibleStates(string current_state)
   return possible_states;
 }
 
-double calculateCostForState(string state, double car_s, int lane, double ref_v, vector<vector<double>> sensor_fusion)
+double calculateCostForState(string state, double car_s, int lane, double ref_v, bool is_accelerating, vector<vector<double>> sensor_fusion)
 {
   double cost = 0.0;
   if (state == "KL")
@@ -104,7 +104,7 @@ double calculateCostForState(string state, double car_s, int lane, double ref_v,
     double distance = getDistanceToClosestCarInFrontOnLane(lane, car_s, sensor_fusion);
     cost += 1.0*getDistanceWithCarCost(distance);
     cost += 1.0*stayOnTheRoadCost(lane);
-    cost += 0.8*getSpeedCost(ref_v);
+    cost += 0.8*getSpeedCost(ref_v, is_accelerating);
   }
   else if (state == "LCL")
   {
@@ -114,7 +114,7 @@ double calculateCostForState(string state, double car_s, int lane, double ref_v,
     cost += 1.0*avoidCollisionCost(distance_behind);
     cost += 1.0*getDistanceWithCarCost(distance);
     cost += 0.2*changeLaneCost();
-    cost += 10.0*stayOnTheRoadCost(lane-1);
+    cost += 1.0*stayOnTheRoadCost(lane-1);
   }
   else if (state == "LCR")
   {
@@ -124,17 +124,9 @@ double calculateCostForState(string state, double car_s, int lane, double ref_v,
     cost += 1.0*avoidCollisionCost(distance_behind);
     cost += 1.0*getDistanceWithCarCost(distance);
     cost += 0.2*changeLaneCost();
-    cost += 10.0*stayOnTheRoadCost(lane+1);
+    cost += 1.0*stayOnTheRoadCost(lane+1);
   }
   return cost;
-}
-
-// Driver function to sort the vector elements
-// by second element of pairs
-bool sortbysec(const pair<string,double> &a,
-              const pair<string,double> &b)
-{
-    return (a.second < b.second);
 }
 
 int main() {
@@ -175,7 +167,7 @@ int main() {
   }
 
   //Define states for FSM
-  vector<string> states = {"KL", "LCL", "LCR", "PLCL", "PLCR"};
+  vector<string> states = {"KL", "LCL", "LCR"};
   string current_state = "KL";
 
   //Define the lane where I want to be
@@ -229,6 +221,7 @@ int main() {
             }
 
             bool too_close = false;
+            bool is_accelerating = false;
             double car_in_front_speed;
             // find ref_v to use
             for (int i = 0; i < sensor_fusion.size(); i++)
@@ -261,16 +254,17 @@ int main() {
               // Reduce speed five meters per second
               ref_vel -= .224;
             }
-            else if (ref_vel < 49.5)
+            else if (ref_vel < 49.0)
             {
-              ref_vel += 0.8;
+              ref_vel += .4;
+              is_accelerating = true;
             }
 
             vector<string> possible_states = getPossibleStates(current_state);
             vector<pair<string,double>> state_costs;
             for (auto const& state: possible_states)
             {
-              double cost = calculateCostForState(state, car_s, lane, ref_vel, sensor_fusion);
+              double cost = calculateCostForState(state, car_s, lane, ref_vel, is_accelerating, sensor_fusion);
               state_costs.push_back(make_pair(state, cost));
               cout << "STATE: " << state << " has a cost of: " << cost << endl;
             }
@@ -281,10 +275,12 @@ int main() {
 
             if (state_costs[0].first == "LCL") {
               lane -= 1;
+              cout << "?????????????????????????????????????????????????????????????????????????????????????????????" << endl;
             }
             else if (state_costs[0].first == "LCR")
             {
               lane += 1;
+              cout << "?????????????????????????????????????????????????????????????????????????????????????????????" << endl;
             }
 
             //Create a space of widely spaced (x,y) waypoints, evenly spaced at 30ms
@@ -372,7 +368,7 @@ int main() {
             }
 
             // Calculate how to break up spline points so that we travel at our desired reference velocity
-            double target_x = 30.0;
+            double target_x = 50.0;
             double target_y = s(target_x);
             double target_dist = sqrt((target_x)*(target_x)+(target_y)*(target_y));
 
@@ -403,7 +399,6 @@ int main() {
 
             json msgJson;
 
-          	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
